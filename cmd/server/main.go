@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
@@ -13,24 +12,22 @@ import (
 	database "github.com/antunesluiz/go-hexagonal-demo/internal/adapters/database/config"
 	"github.com/antunesluiz/go-hexagonal-demo/internal/adapters/graphql/generated"
 	"github.com/antunesluiz/go-hexagonal-demo/internal/adapters/graphql/resolvers"
+	"github.com/antunesluiz/go-hexagonal-demo/pkg/config"
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
-const defaultPort = "8080"
-
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = defaultPort
-	}
+	appConfig := config.LoadAppConfig()
+	dbConfig := config.LoadDatabaseConfig()
+	graphqlConfig := config.LoadGraphQLConfig()
 
 	config := database.PostgresConfig{
-		Host:     "localhost",
-		Port:     5432,
-		User:     "hexagonal_user",
-		Password: "hexagonal_password",
-		DBName:   "hexagonal_db",
-		SSLMode:  "disable",
+		Host:     dbConfig.Host,
+		Port:     dbConfig.Port,
+		User:     dbConfig.User,
+		Password: dbConfig.Password,
+		DBName:   dbConfig.DBName,
+		SSLMode:  dbConfig.SSLMode,
 	}
 
 	db, err := database.NewPostgresDB(config)
@@ -45,16 +42,20 @@ func main() {
 	srv.AddTransport(transport.GET{})
 	srv.AddTransport(transport.POST{})
 
-	srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
+	srv.SetQueryCache(lru.New[*ast.QueryDocument](graphqlConfig.QueryCacheSize))
 
 	srv.Use(extension.Introspection{})
 	srv.Use(extension.AutomaticPersistedQuery{
 		Cache: lru.New[string](100),
 	})
 
-	http.Handle("/", playground.Handler("GraphQL playground", "/query"))
+	if graphqlConfig.PlaygroundEnabled {
+		http.Handle("/", playground.Handler("GraphQL playground", "/query"))
+
+		log.Printf("Conecte-se a http://localhost:%s/ para acessar o playground GraphQL", appConfig.Port)
+	}
+
 	http.Handle("/query", srv)
 
-	log.Printf("connect to http://localhost:%s/ for GraphQL playground", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	log.Fatal(http.ListenAndServe(":"+appConfig.Port, nil))
 }
